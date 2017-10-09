@@ -156,8 +156,7 @@ struct bpf_call_arg_meta {
 /* verbose verifier prints what it's seeing
  * bpf_check() is called under lock, so no race to access these global vars
  */
-static u32 log_level, log_size, log_len;
-static char *log_buf;
+static struct bpf_verifer_log verifier_log;
 
 static DEFINE_MUTEX(bpf_verifier_lock);
 
@@ -167,13 +166,15 @@ static DEFINE_MUTEX(bpf_verifier_lock);
  */
 static __printf(1, 2) void verbose(const char *fmt, ...)
 {
+	struct bpf_verifer_log *log = &verifier_log;
 	va_list args;
 
-	if (log_level == 0 || log_len >= log_size - 1)
+	if (!log->level || bpf_verifier_log_full(log))
 		return;
 
 	va_start(args, fmt);
-	log_len += vscnprintf(log_buf + log_len, log_size - log_len, fmt, args);
+	log->len_used += vscnprintf(log->kbuf + log->len_used,
+				    log->len_total - log->len_used, fmt, args);
 	va_end(args);
 }
 
@@ -5206,7 +5207,7 @@ static void free_states(struct bpf_verifier_env *env)
 
 int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 {
-	char __user *log_ubuf = NULL;
+	struct bpf_verifer_log *log = &verifier_log;
 	struct bpf_verifier_env *env;
 	int ret = -EINVAL;
 
@@ -5243,8 +5244,8 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 			goto err_unlock;
 
 		ret = -ENOMEM;
-		log_buf = vmalloc(log_size);
-		if (!log_buf)
+		log->kbuf = vmalloc(log->len_total);
+		if (!log->kbuf)
 			goto err_unlock;
 	} else {
 		log_level = 0;
@@ -5291,15 +5292,16 @@ skip_full_check:
 	if (ret == 0)
 		ret = fixup_bpf_calls(env);
 
-	if (log_level && log_len >= log_size - 1) {
-		BUG_ON(log_len >= log_size);
+	if (log->level && bpf_verifier_log_full(log)) {
+		BUG_ON(log->len_used >= log->len_total);
 		/* verifier log exceeded user supplied buffer */
 		ret = -ENOSPC;
 		/* fall through to return what was recorded */
 	}
 
 	/* copy verifier log back to user space including trailing zero */
-	if (log_level && copy_to_user(log_ubuf, log_buf, log_len + 1) != 0) {
+	if (log->level && copy_to_user(log->ubuf, log->kbuf,
+				       log->len_used + 1) != 0) {
 		ret = -EFAULT;
 		goto free_log_buf;
 	}
@@ -5326,8 +5328,8 @@ skip_full_check:
 	}
 
 free_log_buf:
-	if (log_level)
-		vfree(log_buf);
+	if (log->level)
+		vfree(log->kbuf);
 	if (!env->prog->aux->used_maps)
 		/* if we didn't copy map pointers into bpf_prog_info, release
 		 * them now. Otherwise free_used_maps() will release them.
