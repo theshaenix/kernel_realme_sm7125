@@ -1487,26 +1487,39 @@ static int dwc3_probe(struct platform_device *pdev)
 	dwc->dwc_ipc_log_ctxt = ipc_log_context_create(NUM_LOG_PAGES,
 					dev_name(dwc->dev), 0);
 	if (!dwc->dwc_ipc_log_ctxt)
-		dev_dbg(dwc->dev, "Error getting ipc_log_ctxt\n");
+		dev_err(dwc->dev, "Error getting ipc_log_ctxt\n");
 
 	snprintf(dma_ipc_log_ctx_name, sizeof(dma_ipc_log_ctx_name),
 					"%s.ep_events", dev_name(dwc->dev));
 	dwc->dwc_dma_ipc_log_ctxt = ipc_log_context_create(NUM_LOG_PAGES,
 						dma_ipc_log_ctx_name, 0);
 	if (!dwc->dwc_dma_ipc_log_ctxt)
-		dev_dbg(dwc->dev, "Error getting ipc_log_ctxt for ep_events\n");
+		dev_err(dwc->dev, "Error getting ipc_log_ctxt for ep_events\n");
 
-	dwc3_instance[count] = dwc;
-	dwc->index = count;
-	count++;
-
-	pm_runtime_allow(dev);
 	dwc3_debugfs_init(dwc);
 	pm_runtime_put(dev);
 
 	dma_set_max_seg_size(dev, UINT_MAX);
 
 	return 0;
+
+err5:
+	dwc3_event_buffers_cleanup(dwc);
+
+	usb_phy_set_suspend(dwc->usb2_phy, 1);
+	usb_phy_set_suspend(dwc->usb3_phy, 1);
+	phy_power_off(dwc->usb2_generic_phy);
+	phy_power_off(dwc->usb3_generic_phy);
+
+	usb_phy_shutdown(dwc->usb2_phy);
+	usb_phy_shutdown(dwc->usb3_phy);
+	phy_exit(dwc->usb2_generic_phy);
+	phy_exit(dwc->usb3_generic_phy);
+
+	dwc3_ulpi_exit(dwc);
+
+err4:
+	dwc3_free_scratch_buffers(dwc);
 
 err3:
 	dwc3_free_scratch_buffers(dwc);
@@ -1791,7 +1804,6 @@ static struct platform_driver dwc3_driver = {
 		.of_match_table	= of_match_ptr(of_dwc3_match),
 		.acpi_match_table = ACPI_PTR(dwc3_acpi_match),
 		.pm	= &dwc3_dev_pm_ops,
-		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
