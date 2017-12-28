@@ -16,6 +16,7 @@
 #include <linux/rbtree_latch.h>
 #include <linux/numa.h>
 
+struct bpf_verifier_env;
 struct perf_event;
 struct bpf_prog;
 struct bpf_map;
@@ -196,6 +197,20 @@ struct bpf_verifier_ops {
 				  const struct bpf_insn *src,
 				  struct bpf_insn *dst,
 				  struct bpf_prog *prog, u32 *target_size);
+};
+
+struct bpf_prog_offload_ops {
+	int (*insn_hook)(struct bpf_verifier_env *env,
+			 int insn_idx, int prev_insn_idx);
+};
+
+struct bpf_dev_offload {
+	struct bpf_prog		*prog;
+	struct net_device	*netdev;
+	void			*dev_priv;
+	struct list_head	offloads;
+	bool			dev_state;
+	const struct bpf_prog_offload_ops *dev_ops;
 };
 
 struct bpf_prog_aux {
