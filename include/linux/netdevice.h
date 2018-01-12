@@ -809,6 +809,12 @@ enum xdp_netdev_command {
 	 * is equivalent to XDP_ATTACHED_DRV.
 	 */
 	XDP_QUERY_PROG,
+	/* BPF program for offload callbacks, invoked at program load time. */
+	BPF_OFFLOAD_VERIFIER_PREP,
+	BPF_OFFLOAD_TRANSLATE,
+	BPF_OFFLOAD_DESTROY,
+	BPF_OFFLOAD_MAP_ALLOC,
+	BPF_OFFLOAD_MAP_FREE,
 };
 
 struct bpf_prog_offload_ops;
@@ -837,6 +843,10 @@ struct netdev_xdp {
 		struct {
 			struct bpf_prog *prog;
 		} offload;
+		/* BPF_OFFLOAD_MAP_ALLOC, BPF_OFFLOAD_MAP_FREE */
+		struct {
+			struct bpf_offloaded_map *offmap;
+		};
 	};
 };
 
