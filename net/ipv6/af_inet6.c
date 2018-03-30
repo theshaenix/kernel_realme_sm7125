@@ -283,15 +283,8 @@ out_rcu_unlock:
 /* bind for INET6 API */
 int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 {
-	struct sockaddr_in6 *addr = (struct sockaddr_in6 *)uaddr;
 	struct sock *sk = sock->sk;
-	struct inet_sock *inet = inet_sk(sk);
-	struct ipv6_pinfo *np = inet6_sk(sk);
-	struct net *net = sock_net(sk);
-	__be32 v4addr = 0;
-	unsigned short snum;
-	bool saved_ipv6only;
-	int addr_type = 0;
+	const struct proto *prot;
 	int err = 0;
 
 	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
@@ -309,6 +302,24 @@ int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	err = BPF_CGROUP_RUN_PROG_INET6_BIND(sk, uaddr);
 	if (err)
 		return err;
+
+	return __inet6_bind(sk, uaddr, addr_len, false, true);
+}
+EXPORT_SYMBOL(inet6_bind);
+
+int __inet6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
+		 bool force_bind_address_no_port, bool with_lock)
+{
+	struct sockaddr_in6 *addr = (struct sockaddr_in6 *)uaddr;
+	struct sock *sk = sock->sk;
+	struct inet_sock *inet = inet_sk(sk);
+	struct ipv6_pinfo *np = inet6_sk(sk);
+	struct net *net = sock_net(sk);
+	__be32 v4addr = 0;
+	unsigned short snum;
+	bool saved_ipv6only;
+	int addr_type = 0;
+	int err = 0;
 
 	if (addr->sin6_family != AF_INET6)
 		return -EAFNOSUPPORT;
@@ -425,7 +436,8 @@ int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 		sk->sk_ipv6only = 1;
 
 	/* Make sure we are allowed to bind here. */
-	if ((snum || !inet->bind_address_no_port) &&
+	if ((snum || !(inet->bind_address_no_port ||
+		       force_bind_address_no_port)) &&
 	    sk->sk_prot->get_port(sk, snum)) {
 		sk->sk_ipv6only = saved_ipv6only;
 		inet_reset_saddr(sk);
