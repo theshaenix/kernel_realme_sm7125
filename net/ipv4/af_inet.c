@@ -431,7 +431,6 @@ EXPORT_SYMBOL(inet_release);
 
 int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 {
-	struct sockaddr_in *addr = (struct sockaddr_in *)uaddr;
 	struct sock *sk = sock->sk;
 	struct inet_sock *inet = inet_sk(sk);
 	struct net *net = sock_net(sk);
@@ -447,6 +446,13 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	}
 	err = -EINVAL;
 	if (addr_len < sizeof(struct sockaddr_in))
+		goto out;
+
+	/* BPF prog is run before any checks are done so that if the prog
+	 * changes context in a wrong way it will be caught.
+	 */
+	err = BPF_CGROUP_RUN_PROG_INET4_BIND(sk, uaddr);
+	if (err)
 		goto out;
 
 	if (addr->sin_family != AF_INET) {
