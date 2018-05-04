@@ -2104,6 +2104,32 @@ struct bpf_map_info {
 	__u32 btf_value_id;
 } __attribute__((aligned(8)));
 
+struct bpf_btf_info {
+	__aligned_u64 btf;
+	__u32 btf_size;
+	__u32 id;
+} __attribute__((aligned(8)));
+
+/* User bpf_sock_addr struct to access socket fields and sockaddr struct passed
+ * by user and intended to be used by socket (e.g. to bind to, depends on
+ * attach attach type).
+ */
+struct bpf_sock_addr {
+	__u32 user_family;	/* Allows 4-byte read, but no write. */
+	__u32 user_ip4;		/* Allows 1,2,4-byte read and 4-byte write.
+				 * Stored in network byte order.
+				 */
+	__u32 user_ip6[4];	/* Allows 1,2,4-byte read an 4-byte write.
+				 * Stored in network byte order.
+				 */
+	__u32 user_port;	/* Allows 4-byte read and write.
+				 * Stored in network byte order
+				 */
+	__u32 family;		/* Allows 4-byte read, but no write */
+	__u32 type;		/* Allows 4-byte read, but no write */
+	__u32 protocol;		/* Allows 4-byte read, but no write */
+};
+
 /* User bpf_sock_ops struct to access socket values and specify request ops
  * and their replies.
  * Some of this fields are in network (bigendian) byte order and may need
