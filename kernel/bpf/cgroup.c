@@ -382,6 +382,106 @@ cleanup:
 	return err;
 }
 
+/* Must be called with cgroup_mutex held to avoid races. */
+int __cgroup_bpf_query(struct cgroup *cgrp, const union bpf_attr *attr,
+		       union bpf_attr __user *uattr)
+{
+	__u32 __user *prog_ids = u64_to_user_ptr(attr->query.prog_ids);
+	enum bpf_attach_type type = attr->query.attach_type;
+	struct list_head *progs = &cgrp->bpf.progs[type];
+	u32 flags = cgrp->bpf.flags[type];
+	int cnt, ret = 0, i;
+
+	if (attr->query.query_flags & BPF_F_QUERY_EFFECTIVE)
+		cnt = bpf_prog_array_length(cgrp->bpf.effective[type]);
+	else
+		cnt = prog_list_length(progs);
+
+	if (copy_to_user(&uattr->query.attach_flags, &flags, sizeof(flags)))
+		return -EFAULT;
+	if (copy_to_user(&uattr->query.prog_cnt, &cnt, sizeof(cnt)))
+		return -EFAULT;
+	if (attr->query.prog_cnt == 0 || !prog_ids || !cnt)
+		/* return early if user requested only program count + flags */
+		return 0;
+	if (attr->query.prog_cnt < cnt) {
+		cnt = attr->query.prog_cnt;
+		ret = -ENOSPC;
+	}
+
+	if (attr->query.query_flags & BPF_F_QUERY_EFFECTIVE) {
+		return bpf_prog_array_copy_to_user(cgrp->bpf.effective[type],
+						   prog_ids, cnt);
+	} else {
+		struct bpf_prog_list *pl;
+		u32 id;
+
+		i = 0;
+		list_for_each_entry(pl, progs, node) {
+			id = pl->prog->aux->id;
+			if (copy_to_user(prog_ids + i, &id, sizeof(id)))
+				return -EFAULT;
+			if (++i == cnt)
+				break;
+		}
+	}
+	return ret;
+}
+
+int cgroup_bpf_prog_attach(const union bpf_attr *attr,
+			   enum bpf_prog_type ptype, struct bpf_prog *prog)
+{
+	struct cgroup *cgrp;
+	int ret;
+
+	cgrp = cgroup_get_from_fd(attr->target_fd);
+	if (IS_ERR(cgrp))
+		return PTR_ERR(cgrp);
+
+	ret = cgroup_bpf_attach(cgrp, prog, attr->attach_type,
+				attr->attach_flags);
+	cgroup_put(cgrp);
+	return ret;
+}
+
+int cgroup_bpf_prog_detach(const union bpf_attr *attr, enum bpf_prog_type ptype)
+{
+	struct bpf_prog *prog;
+	struct cgroup *cgrp;
+	int ret;
+
+	cgrp = cgroup_get_from_fd(attr->target_fd);
+	if (IS_ERR(cgrp))
+		return PTR_ERR(cgrp);
+
+	prog = bpf_prog_get_type(attr->attach_bpf_fd, ptype);
+	if (IS_ERR(prog))
+		prog = NULL;
+
+	ret = cgroup_bpf_detach(cgrp, prog, attr->attach_type, 0);
+	if (prog)
+		bpf_prog_put(prog);
+
+	cgroup_put(cgrp);
+	return ret;
+}
+
+int cgroup_bpf_prog_query(const union bpf_attr *attr,
+			  union bpf_attr __user *uattr)
+{
+	struct cgroup *cgrp;
+	int ret;
+
+	cgrp = cgroup_get_from_fd(attr->query.target_fd);
+	if (IS_ERR(cgrp))
+		return PTR_ERR(cgrp);
+
+	ret = cgroup_bpf_query(cgrp, attr, uattr);
+
+	cgroup_put(cgrp);
+	return ret;
+}
+
 /**
  * __cgroup_bpf_run_filter_skb() - Run a program for packet filtering
  * @sk: The socket sending or receiving traffic
