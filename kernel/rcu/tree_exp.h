@@ -264,7 +264,7 @@ static void rcu_report_exp_cpu_mult(struct rcu_node *rnp,
 static void rcu_report_exp_rdp(struct rcu_data *rdp)
 {
 	WRITE_ONCE(rdp->deferred_qs, false);
-	rcu_report_exp_cpu_mult(rdp->mynode, rdp->grpmask, true);
+	rcu_report_exp_cpu_mult(rsp, rdp->mynode, rdp->grpmask, wake);
 }
 
 /* Common code for work-done checking. */
@@ -612,7 +612,8 @@ static void wait_rcu_exp_gp(struct work_struct *wp)
 static void rcu_exp_handler(void *unused)
 {
 	unsigned long flags;
-	struct rcu_data *rdp = this_cpu_ptr(&rcu_data);
+	struct rcu_state *rsp = info;
+	struct rcu_data *rdp = this_cpu_ptr(rsp->rda);
 	struct rcu_node *rnp = rdp->mynode;
 	struct task_struct *t = current;
 
@@ -624,11 +625,10 @@ static void rcu_exp_handler(void *unused)
 	if (!t->rcu_read_lock_nesting) {
 		if (!(preempt_count() & (PREEMPT_MASK | SOFTIRQ_MASK)) ||
 		    rcu_dynticks_curr_cpu_in_eqs()) {
-			rcu_report_exp_rdp(rdp);
+			rcu_report_exp_rdp(rsp, rdp, true);
 		} else {
 			rdp->deferred_qs = true;
-			set_tsk_need_resched(t);
-			set_preempt_need_resched();
+			resched_cpu(rdp->cpu);
 		}
 		return;
 	}
@@ -647,12 +647,9 @@ static void rcu_exp_handler(void *unused)
 	 */
 	if (t->rcu_read_lock_nesting > 0) {
 		raw_spin_lock_irqsave_rcu_node(rnp, flags);
-		if (rnp->expmask & rdp->grpmask) {
+		if (rnp->expmask & rdp->grpmask)
 			rdp->deferred_qs = true;
-			t->rcu_read_unlock_special.b.exp_hint = true;
-		}
 		raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
-		return;
 	}
 
 	/*
@@ -664,21 +661,20 @@ static void rcu_exp_handler(void *unused)
 	 *
 	 * If the CPU is fully enabled (or if some buggy RCU-preempt
 	 * read-side critical section is being used from idle), just
-	 * invoke rcu_preempt_deferred_qs() to immediately report the
+	 * invoke rcu_preempt_defer_qs() to immediately report the
 	 * quiescent state.  We cannot use rcu_read_unlock_special()
 	 * because we are in an interrupt handler, which will cause that
 	 * function to take an early exit without doing anything.
 	 *
-	 * Otherwise, force a context switch after the CPU enables everything.
+	 * Otherwise, use resched_cpu() to force a context switch after
+	 * the CPU enables everything.
 	 */
 	rdp->deferred_qs = true;
 	if (!(preempt_count() & (PREEMPT_MASK | SOFTIRQ_MASK)) ||
-	    WARN_ON_ONCE(rcu_dynticks_curr_cpu_in_eqs())) {
+	    WARN_ON_ONCE(rcu_dynticks_curr_cpu_in_eqs()))
 		rcu_preempt_deferred_qs(t);
-	} else {
-		set_tsk_need_resched(t);
-		set_preempt_need_resched();
-	}
+	else
+		resched_cpu(rdp->cpu);
 }
 
 /* PREEMPT=y, so no PREEMPT=n expedited grace period to clean up after. */
