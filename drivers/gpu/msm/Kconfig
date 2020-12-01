@@ -34,3 +34,7 @@ config QCOM_KGSL_IOCOHERENCY_DEFAULT
 	 support hardware I/O coherency. If enabled all cached GPU memory
 	 will use I/O coherency regardless of the user flags. If not enabled
 	 the user can still selectively enable I/O coherency with a flag.
+
+config CORESIGHT_ADRENO
+	bool
+	default y if QCOM_KGSL=y && CORESIGHT=y
