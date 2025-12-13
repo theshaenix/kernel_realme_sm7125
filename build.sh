@@ -7,7 +7,7 @@ set -e
 
 # Define global variables
 SRC="$(pwd)"
-PROTON_PATH="/home/itachi/proton"
+PROTON_PATH=~/toolchain/proton
 KBUILD_BUILD_USER="Itachi"
 KBUILD_BUILD_HOST="Konoha"
 ANYKERNEL3_DIR=AnyKernel3
@@ -207,7 +207,7 @@ zip_kernel_files() {
     log "$blue **** Verifying AnyKernel3 Directory **** $nocol"
 
     if [ ! -d "$SRC/AnyKernel3" ]; then
-        git clone --depth=1 https://github.com/neel0210/AnyKernel3.git -b SATORU AnyKernel3
+        git clone --depth=1 https://github.com/theshaenix/AnyKernel3.git -b master AnyKernel3
     else
         log "$blue AnyKernel3 already present! $nocol"
     fi
